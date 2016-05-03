@@ -1,43 +1,33 @@
-package net.minelink.ctplus.compat.v1_7_R4;
+package net.minelink.ctplus.compat.v1_9_R1;
 
-import net.minecraft.server.v1_7_R4.EntityPlayer;
-import net.minecraft.server.v1_7_R4.ItemStack;
-import net.minecraft.server.v1_7_R4.MinecraftServer;
-import net.minecraft.server.v1_7_R4.NBTCompressedStreamTools;
-import net.minecraft.server.v1_7_R4.NBTTagCompound;
-import net.minecraft.server.v1_7_R4.NBTTagList;
-import net.minecraft.server.v1_7_R4.Packet;
-import net.minecraft.server.v1_7_R4.PacketPlayOutEntityEquipment;
-import net.minecraft.server.v1_7_R4.PacketPlayOutPlayerInfo;
-import net.minecraft.server.v1_7_R4.WorldNBTStorage;
-import net.minecraft.server.v1_7_R4.WorldServer;
+import net.minecraft.server.v1_9_R1.EntityPlayer;
+import net.minecraft.server.v1_9_R1.EnumItemSlot;
+import net.minecraft.server.v1_9_R1.FoodMetaData;
+import net.minecraft.server.v1_9_R1.ItemStack;
+import net.minecraft.server.v1_9_R1.MinecraftServer;
+import net.minecraft.server.v1_9_R1.NBTCompressedStreamTools;
+import net.minecraft.server.v1_9_R1.NBTTagCompound;
+import net.minecraft.server.v1_9_R1.NBTTagList;
+import net.minecraft.server.v1_9_R1.Packet;
+import net.minecraft.server.v1_9_R1.PacketPlayOutEntityEquipment;
+import net.minecraft.server.v1_9_R1.PacketPlayOutPlayerInfo;
+import net.minecraft.server.v1_9_R1.PacketPlayOutPlayerInfo.EnumPlayerInfoAction;
+import net.minecraft.server.v1_9_R1.WorldNBTStorage;
+import net.minecraft.server.v1_9_R1.WorldServer;
 import net.minelink.ctplus.compat.api.NpcIdentity;
 import net.minelink.ctplus.compat.api.NpcPlayerHelper;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_7_R4.CraftWorld;
-import org.bukkit.craftbukkit.v1_7_R4.entity.CraftPlayer;
+import org.bukkit.craftbukkit.v1_9_R1.CraftWorld;
+import org.bukkit.craftbukkit.v1_9_R1.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 
 public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
-
-    private static Method addPlayer;
-
-    private static Method removePlayer;
-
-    static {
-        try {
-            addPlayer = PacketPlayOutPlayerInfo.class.getMethod("addPlayer", EntityPlayer.class);
-            removePlayer = PacketPlayOutPlayerInfo.class.getMethod("removePlayer", EntityPlayer.class);
-        } catch (NoSuchMethodException ignored) {
-
-        }
-    }
 
     @Override
     public Player spawn(Player player) {
@@ -52,13 +42,9 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
 
         for (Object o : MinecraftServer.getServer().getPlayerList().players) {
             if (!(o instanceof EntityPlayer) || o instanceof NpcPlayer) continue;
-            if (addPlayer == null) break;
 
-            try {
-                ((EntityPlayer) o).playerConnection.sendPacket((Packet) addPlayer.invoke(null, npcPlayer));
-            } catch (Exception ignored) {
-
-            }
+            PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(EnumPlayerInfoAction.ADD_PLAYER, npcPlayer);
+            ((EntityPlayer) o).playerConnection.sendPacket(packet);
         }
 
         worldServer.addEntity(npcPlayer);
@@ -77,13 +63,9 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
 
         for (Object o : MinecraftServer.getServer().getPlayerList().players) {
             if (!(o instanceof EntityPlayer) || o instanceof NpcPlayer) continue;
-            if (addPlayer == null) break;
 
-            try {
-                ((EntityPlayer) o).playerConnection.sendPacket((Packet) removePlayer.invoke(null, entity));
-            } catch (Exception ignored) {
-
-            }
+            PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(EnumPlayerInfoAction.REMOVE_PLAYER, entity);
+            ((EntityPlayer) o).playerConnection.sendPacket(packet);
         }
 
         WorldServer worldServer = MinecraftServer.getServer().getWorldServer(entity.dimension);
@@ -116,11 +98,11 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
         Location l = player.getLocation();
         int rangeSquared = 512 * 512;
 
-        for (int i = 0; i < 5; ++i) {
-            ItemStack item = entity.getEquipment(i);
+        for (EnumItemSlot slot : EnumItemSlot.values()) {
+            ItemStack item = entity.getEquipment(slot);
             if (item == null) continue;
 
-            Packet packet = new PacketPlayOutEntityEquipment(entity.getId(), i, item);
+            Packet packet = new PacketPlayOutEntityEquipment(entity.getId(), slot, item);
 
             for (Object o : entity.world.players) {
                 if (!(o instanceof EntityPlayer)) continue;
@@ -151,13 +133,25 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
         NBTTagCompound playerNbt = worldStorage.getPlayerData(identity.getId().toString());
         if (playerNbt == null) return;
 
+        // foodTickTimer is now private in 1.8.3
+        Field foodTickTimerField;
+        int foodTickTimer;
+
+        try {
+            foodTickTimerField = FoodMetaData.class.getDeclaredField("foodTickTimer");
+            foodTickTimerField.setAccessible(true);
+            foodTickTimer = foodTickTimerField.getInt(entity.getFoodData());
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+
         playerNbt.setShort("Air", (short) entity.getAirTicks());
         playerNbt.setFloat("HealF", entity.getHealth());
         playerNbt.setShort("Health", (short) ((int) Math.ceil((double) entity.getHealth())));
         playerNbt.setFloat("AbsorptionAmount", entity.getAbsorptionHearts());
         playerNbt.setInt("XpTotal", entity.expTotal);
         playerNbt.setInt("foodLevel", entity.getFoodData().foodLevel);
-        playerNbt.setInt("foodTickTimer", entity.getFoodData().foodTickTimer);
+        playerNbt.setInt("foodTickTimer", foodTickTimer);
         playerNbt.setFloat("foodSaturationLevel", entity.getFoodData().saturationLevel);
         playerNbt.setFloat("foodExhaustionLevel", entity.getFoodData().exhaustionLevel);
         playerNbt.setShort("Fire", (short) entity.fireTicks);
@@ -179,8 +173,6 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
 
     @Override
     public void createPlayerList(Player player) {
-        if (addPlayer == null) return;
-
         EntityPlayer p = ((CraftPlayer) player).getHandle();
 
         for (WorldServer worldServer : MinecraftServer.getServer().worlds) {
@@ -188,20 +180,14 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
                 if (!(o instanceof NpcPlayer)) continue;
 
                 NpcPlayer npcPlayer = (NpcPlayer) o;
-
-                try {
-                    p.playerConnection.sendPacket((Packet) addPlayer.invoke(null, npcPlayer));
-                } catch (Exception ignored) {
-
-                }
+                PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(EnumPlayerInfoAction.ADD_PLAYER, npcPlayer);
+                p.playerConnection.sendPacket(packet);
             }
         }
     }
 
     @Override
     public void removePlayerList(Player player) {
-        if (addPlayer == null) return;
-
         EntityPlayer p = ((CraftPlayer) player).getHandle();
 
         for (WorldServer worldServer : MinecraftServer.getServer().worlds) {
@@ -209,12 +195,8 @@ public final class NpcPlayerHelperImpl implements NpcPlayerHelper {
                 if (!(o instanceof NpcPlayer)) continue;
 
                 NpcPlayer npcPlayer = (NpcPlayer) o;
-
-                try {
-                    p.playerConnection.sendPacket((Packet) removePlayer.invoke(null, npcPlayer));
-                } catch (Exception ignored) {
-
-                }
+                PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(EnumPlayerInfoAction.REMOVE_PLAYER, npcPlayer);
+                p.playerConnection.sendPacket(packet);
             }
         }
     }

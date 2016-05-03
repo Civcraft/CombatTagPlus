@@ -2,6 +2,7 @@ package net.minelink.ctplus.listener;
 
 import com.google.common.collect.ImmutableSet;
 import net.minelink.ctplus.CombatTagPlus;
+import net.minelink.ctplus.Tag;
 import net.minelink.ctplus.event.PlayerCombatTagEvent;
 import net.minelink.ctplus.task.SafeLogoutTask;
 import net.minelink.ctplus.task.TagUpdateTask;
@@ -19,6 +20,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.PotionSplashEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -107,7 +109,7 @@ public final class TagListener implements Listener {
         }
 
         // Do nothing if damage is self-inflicted
-        if (victim == attacker) return;
+        if (victim == attacker && plugin.getSettings().disableSelfTagging()) return;
 
         // Combat tag victim and player
         plugin.getTagManager().tag(victim, attacker);
@@ -147,6 +149,30 @@ public final class TagListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void tagPlayer(ProjectileLaunchEvent event) {
+        // Do nothing if option is disabled
+        if (plugin.getSettings().resetTagOnPearl()) return;
+
+        // Do nothing if the launched projectile is not an ender pearl
+        Projectile entity = event.getEntity();
+        if (entity.getType() != EntityType.ENDER_PEARL) return;
+
+        // Do nothing if projectile source is not a player
+        if (!(entity.getShooter() instanceof Player)) return;
+
+        // Do nothign if player has permission to bypass tagging
+        Player player = (Player) entity.getShooter();
+        if (player.hasPermission("ctplus.bypass.tag")) return;
+
+        // Do nothing if player is not tagged
+        Tag tag = plugin.getTagManager().getTag(player.getUniqueId());
+        if (tag == null) return;
+
+        // Reset the tag duration
+        tag.setExpireTime(System.currentTimeMillis() + (plugin.getSettings().getTagDuration() * 1000));
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void untagPlayer(PlayerDeathEvent event) {
         Player player = event.getEntity();
@@ -171,7 +197,7 @@ public final class TagListener implements Listener {
     public void sendTagMessage(PlayerCombatTagEvent event) {
         // Do nothing if tag message is blank
         String message = plugin.getSettings().getTagMessage();
-        if (message.isEmpty()) { return };
+        if (message.isEmpty()) { return; }
 
         Player attacker = event.getAttacker();
         Player victim = event.getVictim();
@@ -179,12 +205,12 @@ public final class TagListener implements Listener {
         // Send combat tag notification to victim
         if (victim != null && !plugin.getTagManager().isTagged(victim.getUniqueId()) &&
                 !plugin.getSettings().onlyTagAttacker()) {
-            victim.sendMessage(message.replace("{opponent}", attacker.getName()));
+            victim.sendMessage(message.replace("{opponent}", (attacker != null ? attacker.getName() : "someone") ));
         }
 
         // Send combat tag notification to attacker
         if (attacker != null && !plugin.getTagManager().isTagged(attacker.getUniqueId())) {
-            attacker.sendMessage(message.replace("{opponent}", victim.getName()));
+            attacker.sendMessage(message.replace("{opponent}", (victim != null ? victim.getName() : "someone")));
         }
     }
 
