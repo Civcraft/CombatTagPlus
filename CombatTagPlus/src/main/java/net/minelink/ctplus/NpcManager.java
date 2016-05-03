@@ -52,6 +52,7 @@ public final class NpcManager {
         entity.addPotionEffects(player.getActivePotionEffects());
 
         // Should fix some visual glitches, such as health bars displaying zero
+        // TODO: Find another solution. This one causes the player to be added to the NMS PlayerList, that's not ideal.
         entity.teleport(player, PlayerTeleportEvent.TeleportCause.PLUGIN);
 
         // Send equipment packets to nearby players
@@ -61,19 +62,24 @@ public final class NpcManager {
         if (plugin.getSettings().playEffect()) {
             Location l = entity.getLocation();
             l.getWorld().playEffect(l, Effect.MOBSPAWNER_FLAMES, 0, 64);
-            l.getWorld().playSound(l, Sound.EXPLODE, 0.9F, 0);
+            // NOTE: Do not directly access the values in the sound enum, as that can change across versions\
+            l.getWorld().playSound(l, EXPLODE_SOUND, 0.9F, 0);
         }
 
         return npc;
     }
 
     public void despawn(Npc npc) {
+        despawn(npc, NpcDespawnReason.DESPAWN);
+    }
+
+    public void despawn(Npc npc, NpcDespawnReason reason) {
         // Do nothing if NPC isn't spawned or if it's a different NPC
         Npc other = getSpawnedNpc(npc.getIdentity().getId());
         if (other == null || other != npc) return;
 
         // Call NPC despawn event
-        NpcDespawnEvent event = new NpcDespawnEvent(npc, NpcDespawnReason.DESPAWN);
+        NpcDespawnEvent event = new NpcDespawnEvent(npc, reason);
         Bukkit.getPluginManager().callEvent(event);
 
         // Remove the NPC entity from the world
@@ -87,6 +93,22 @@ public final class NpcManager {
 
     public boolean npcExists(UUID playerId) {
         return spawnedNpcs.containsKey(playerId);
+    }
+
+    // Use reflection
+    private static final Sound EXPLODE_SOUND;
+    static {
+        Sound sound;
+        try {
+            sound = Sound.valueOf("ENTITY_GENERIC_EXPLODE"); // 1.9 name
+        } catch (IllegalArgumentException e) {
+            try {
+                sound = Sound.valueOf("EXPLODE"); // 1.8 name
+            } catch (IllegalArgumentException e2) {
+                throw new AssertionError("Unable to find explosion sound");
+            }
+        }
+        EXPLODE_SOUND = sound;
     }
 
 }
